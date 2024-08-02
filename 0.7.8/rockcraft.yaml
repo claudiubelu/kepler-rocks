@@ -1,0 +1,88 @@
+name: kepler
+summary: Kepler ROCK image.
+description: >
+  This rock is a drop in replacement for the
+  quay.io/sustainable_computing_io/kepler:release-0.7.8 image.
+version: 0.7.8
+license: Apache-2.0
+
+base: ubuntu@24.04
+build-base: ubuntu@24.04
+platforms:
+  amd64:
+
+entrypoint-service: kepler
+services:
+  kepler:
+    command: /usr/bin/kepler [ -h ]
+    override: replace
+    startup: enabled
+
+parts:
+  build-deps:
+    plugin: nil
+    build-snaps:
+      - go/1.22/stable
+    build-packages:
+      - elfutils
+      - libbpf-dev
+      - libbpf-tools
+      - llvm
+      - clang
+      - gcc
+      - binutils-dev
+      - libcap-dev
+
+  kepler:
+    after: [build-deps]
+    plugin: go
+    source-type: git
+    source: https://github.com/sustainable-computing-io/kepler
+    source-tag: v0.7.8
+    source-depth: 1
+    override-build: |
+      export NVIDIA_VISIBLE_DEVICES=all
+      export NVIDIA_DRIVER_CAPABILITIES=utility
+      export NVIDIA_MIG_CONFIG_DEVICES=all 
+      export NVIDIA_MIG_MONITOR_DEVICES=all
+
+      # The libbpf.a path is hard-coded in the kepler makefile, we'll
+      # copy it at the expected location.
+      cp /usr/lib/*-linux-gnu/libbpf.a /usr/lib64/libbpf.a
+
+      ATTACHER_TAG=libbpf make build
+
+      mkdir -p $CRAFT_PART_INSTALL/usr/bin
+      cp _output/bin/kepler $CRAFT_PART_INSTALL/usr/bin/kepler
+
+      mkdir -p $CRAFT_PART_INSTALL/var/lib/kepler/data
+      mkdir -p $CRAFT_PART_INSTALL/var/lib/kepler/bpf
+
+      cp data/cpus.yaml $CRAFT_PART_INSTALL/var/lib/kepler/data/cpus.yaml
+      cp -r bpfassets/libbpf/bpf.o $CRAFT_PART_INSTALL/var/lib/kepler/bpfassets
+
+      cp data/model_weight/acpi_AbsPowerModel.json $CRAFT_PART_INSTALL/var/lib/kepler/data/acpi_AbsPowerModel.json
+      cp data/model_weight/acpi_DynPowerModel.json $CRAFT_PART_INSTALL/var/lib/kepler/data/acpi_DynPowerModel.json
+      cp data/model_weight/intel_rapl_AbsPowerModel.json $CRAFT_PART_INSTALL/var/lib/kepler/data/intel_rapl_AbsPowerModel.json
+      cp data/model_weight/intel_rapl_DynPowerModel.json $CRAFT_PART_INSTALL/var/lib/kepler/data/intel_rapl_DynPowerModel.json
+
+  bpftool:
+    after: [build-deps]
+    plugin: nil
+    source-type: git
+    source: https://github.com/libbpf/bpftool.git
+    source-tag: v7.4.0
+    source-submodules:
+      - libbpf
+    source-depth: 1
+    override-build: |
+      cd src
+      make
+      mkdir -p $CRAFT_PART_INSTALL/usr/bin
+      cp bpftool $CRAFT_PART_INSTALL/usr/bin/bpftool
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      - libbpf1
+      - cpuid
